@@ -4,18 +4,18 @@ from torchvision import models
 
 
 def create_model(num_classes=5):
+
     """
-    Create a pretrained ResNet-50 for
-    5-class diabetic retinopathy classification.
+    Create ResNet-50 architecture
+    for 5-class diabetic retinopathy classification.
+
+    Pretrained weights are NOT loaded here.
+    The trained DrishtiAI checkpoint is loaded separately
+    by predictor.py.
     """
 
-    # Load pretrained ResNet-50
-    model = models.resnet50(
-        weights=models.ResNet50_Weights.DEFAULT
-    )
+    model = models.resnet50(weights=None)
 
-    # Replace the original ImageNet classifier
-    # (1000 classes) with our 5 DR classes.
     input_features = model.fc.in_features
 
     model.fc = nn.Linear(
@@ -35,13 +35,12 @@ if __name__ == "__main__":
     model = create_model(num_classes=5)
     model = model.to(device)
 
-    print("✅ Model created successfully")
+    print("✅ Model architecture created")
     print("Device:", device)
     print("Output classes:", 5)
 
-    # Test with one batch-shaped input
     dummy_input = torch.randn(
-        2, 3, 224, 224
+        1, 3, 224, 224
     ).to(device)
 
     with torch.no_grad():
