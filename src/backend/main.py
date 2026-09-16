@@ -8,7 +8,7 @@ from io import BytesIO
 from datetime import datetime
 import base64
 
-from src.backend.predictor import predict_image
+from src.backend.predictor import predict_image, model, device
 from src.explainability.gradcam import generate_gradcam
 from src.backend.database import Base, engine, get_db
 from src.backend.models import User, Patient, Assessment
@@ -113,6 +113,8 @@ async def predict(file: UploadFile = File(...)):
         gradcam_bytes = generate_gradcam(
             image,
             result["grade"],
+            model,
+            device,
         )
 
         gradcam_base64 = base64.b64encode(
@@ -257,7 +259,7 @@ def login(
 
     if not verify_password(
         data.password,
-        user.password_hash,
+        user.password_hash,  # type: ignore
     ):
         raise HTTPException(
             status_code=401,
@@ -265,8 +267,8 @@ def login(
         )
 
     token = create_access_token(
-        user.id,
-        user.email,
+        user.id,  # type: ignore
+        user.email,  # type: ignore
     )
 
     return {
@@ -484,6 +486,8 @@ def get_patient(
             ],
         },
     }
+
+
 # ============================================================
 # GET PATIENT ASSESSMENTS
 # ============================================================
@@ -543,6 +547,7 @@ def get_patient_assessments(
             for assessment in assessments
         ],
     }
+
 
 # ============================================================
 # SAVE ASSESSMENT
