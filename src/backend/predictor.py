@@ -1,14 +1,54 @@
+import os
 import torch
 from PIL import Image
 from torchvision import transforms
 
 from src.training.model import create_model
 
+
+
+# ============================================================
+# DEVICE
+# ============================================================
+
 device = torch.device("cpu")
 
-MODEL_PATH = "models/focal_best_model.pth"
 
-model = create_model(num_classes=5)
+# ============================================================
+# MODEL PATH
+# ============================================================
+
+BASE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "models",
+    "focal_best_model.pth"
+)
+
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+
+print("Loading DrishtiAI model...")
+print(f"Model path: {MODEL_PATH}")
+print(f"Device: {device}")
+
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(
+        f"Model file not found: {MODEL_PATH}"
+    )
+
+# IMPORTANT:
+# weights=None prevents downloading ResNet pretrained
+# ImageNet weights during deployment.
+model = create_model(
+    num_classes=5,
+    weights=None
+)
 
 checkpoint = torch.load(
     MODEL_PATH,
@@ -16,15 +56,23 @@ checkpoint = torch.load(
     weights_only=False
 )
 
-model.load_state_dict(
-    checkpoint["model_state_dict"]
-)
+# Support checkpoint containing model_state_dict
+if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+    state_dict = checkpoint["model_state_dict"]
+else:
+    state_dict = checkpoint
+
+model.load_state_dict(state_dict)
 
 model = model.to(device)
 model.eval()
 
-print("✅ DrishtiAI model loaded")
-print(f"Device: {device}")
+print("DrishtiAI model loaded successfully.")
+
+
+# ============================================================
+# IMAGE TRANSFORMATION
+# ============================================================
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -35,6 +83,11 @@ transform = transforms.Compose([
     )
 ])
 
+
+# ============================================================
+# DIABETIC RETINOPATHY LABELS
+# ============================================================
+
 GRADE_LABELS = {
     0: "No Diabetic Retinopathy",
     1: "Mild",
@@ -43,13 +96,20 @@ GRADE_LABELS = {
     4: "Proliferative"
 }
 
+
+# ============================================================
+# PREDICTION
+# ============================================================
+
 def predict_image(image: Image.Image):
+
     image = image.convert("RGB")
 
     tensor = transform(image)
-    tensor = tensor.unsqueeze(0).to(device) # type: ignore
+    tensor = tensor.unsqueeze(0).to(device)
 
     with torch.no_grad():
+
         outputs = model(tensor)
 
         probabilities = torch.softmax(
@@ -63,10 +123,16 @@ def predict_image(image: Image.Image):
         )
 
     grade = int(prediction.item())
-    confidence = float(confidence.item())
+    confidence_value = float(confidence.item())
 
     return {
         "grade": grade,
-        "severity": GRADE_LABELS[grade],
-        "confidence": round(confidence * 100, 2)
+        "severity": GRADE_LABELS.get(
+            grade,
+            "Unknown"
+        ),
+        "confidence": round(
+            confidence_value * 100,
+            2
+        )
     }

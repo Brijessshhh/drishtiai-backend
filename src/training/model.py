@@ -3,18 +3,17 @@ import torch.nn as nn
 from torchvision import models
 
 
-def create_model(num_classes=5):
-
+def create_model(num_classes=5, weights=None):
     """
-    Create ResNet-50 architecture
-    for 5-class diabetic retinopathy classification.
+    Create ResNet-50 for 5-class diabetic retinopathy classification.
 
-    Pretrained weights are NOT loaded here.
-    The trained DrishtiAI checkpoint is loaded separately
-    by predictor.py.
+    For deployment/inference:
+        weights=None
+
+    This is important because our trained checkpoint is loaded separately.
     """
 
-    model = models.resnet50(weights=None)
+    model = models.resnet50(weights=weights)
 
     input_features = model.fc.in_features
 
@@ -27,24 +26,18 @@ def create_model(num_classes=5):
 
 
 if __name__ == "__main__":
-
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
-    model = create_model(num_classes=5)
+    # Test model without downloading ImageNet weights
+    model = create_model(
+        num_classes=5,
+        weights=None
+    )
+
     model = model.to(device)
 
-    print("✅ Model architecture created")
+    print("Model created successfully")
     print("Device:", device)
     print("Output classes:", 5)
-
-    dummy_input = torch.randn(
-        1, 3, 224, 224
-    ).to(device)
-
-    with torch.no_grad():
-        output = model(dummy_input)
-
-    print("Input shape:", dummy_input.shape)
-    print("Output shape:", output.shape)
