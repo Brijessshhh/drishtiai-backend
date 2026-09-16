@@ -4,9 +4,7 @@ from torchvision import transforms
 
 from src.training.model import create_model
 
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
+device = torch.device("cpu")
 
 MODEL_PATH = "models/focal_best_model.pth"
 
