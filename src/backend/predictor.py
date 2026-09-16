@@ -2,6 +2,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
+import gc
 import torch
 torch.set_num_threads(1)
 
@@ -67,6 +68,11 @@ else:
     state_dict = checkpoint
 
 model.load_state_dict(state_dict)
+
+# Free the checkpoint dict — weights are already copied into the
+# model, no need to keep this second full copy in memory.
+del checkpoint, state_dict
+gc.collect()
 
 model = model.to(device)
 model.eval()
