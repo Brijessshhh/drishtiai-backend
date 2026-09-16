@@ -1,13 +1,11 @@
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
 
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
-from pytorch_grad_cam.utils.image import show_cam_on_image
-
+cv2.setNumThreads(1)
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -26,84 +24,80 @@ def generate_gradcam(
     device
 ):
     """
-    Generate Grad-CAM visualization for a prediction.
-
-    Model and device are passed as arguments to avoid
-    circular imports with predictor.py.
+    Lightweight Grad-CAM using raw PyTorch forward/backward hooks.
+    No pytorch-grad-cam / matplotlib / ttach dependency needed.
     """
 
     image = image.convert("RGB")
-
-    # Resize image for visualization
     resized = image.resize((224, 224))
+    rgb_image = np.array(resized).astype(np.float32) / 255.0
 
-    rgb_image = (
-        np.array(resized).astype(np.float32) / 255.0
-    )
+    input_tensor = transform(image).unsqueeze(0).to(device)
+    input_tensor.requires_grad_(True)
 
-    # Preprocess image
-    input_tensor = transform(
-        image
-    ).unsqueeze(0).to(device)
+    activations = {}
+    gradients = {}
 
-    # Last convolutional layer of ResNet-50
-    target_layers = [
-        model.layer4[-1]
-    ]
+    target_layer = model.layer4[-1]
 
-    # Generate Grad-CAM
-    with GradCAM(
-        model=model,
-        target_layers=target_layers
-    ) as cam:
+    def forward_hook(module, inp, out):
+        activations["value"] = out
 
-        targets = [
-            ClassifierOutputTarget(predicted_class)
-        ]
+    def backward_hook(module, grad_in, grad_out):
+        gradients["value"] = grad_out[0]
 
-        grayscale_cam = cam(
-            input_tensor=input_tensor,
-            targets=targets
-        )[0]
+    fh = target_layer.register_forward_hook(forward_hook)
+    bh = target_layer.register_full_backward_hook(backward_hook)
 
-    # Generate heatmap
+    try:
+        model.zero_grad(set_to_none=True)
+        output = model(input_tensor)
+        score = output[0, predicted_class]
+        score.backward()
+
+        acts = activations["value"].detach()[0]   # (C, H, W)
+        grads = gradients["value"].detach()[0]     # (C, H, W)
+
+        weights = grads.mean(dim=(1, 2))            # (C,)
+        cam = torch.zeros(acts.shape[1:], dtype=torch.float32)
+
+        for i, w in enumerate(weights):
+            cam += w * acts[i]
+
+        cam = F.relu(cam)
+        cam = cam / (cam.max() + 1e-8)
+        cam = cam.cpu().numpy()
+
+    finally:
+        fh.remove()
+        bh.remove()
+        model.zero_grad(set_to_none=True)
+
+    cam_resized = cv2.resize(cam, (224, 224))
+
     heatmap = cv2.applyColorMap(
-        np.uint8(255 * grayscale_cam),
+        np.uint8(255 * cam_resized),
         cv2.COLORMAP_JET
     )
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
 
-    heatmap = cv2.cvtColor(
-        heatmap,
-        cv2.COLOR_BGR2RGB
-    )
+    overlay = (
+        0.5 * heatmap.astype(np.float32)
+        + 0.5 * (rgb_image * 255)
+    ).astype(np.uint8)
 
-    # Overlay Grad-CAM on original image
-    overlay = show_cam_on_image(
-        rgb_image,
-        grayscale_cam,
-        use_rgb=True
-    )
-
-    # Combine:
-    # Original | Heatmap | Grad-CAM overlay
     combined = np.hstack([
         np.array(resized),
         heatmap,
         overlay
     ])
 
-    # Encode as JPEG
     success, encoded = cv2.imencode(
         ".jpg",
-        cv2.cvtColor(
-            combined,
-            cv2.COLOR_RGB2BGR
-        )
+        cv2.cvtColor(combined, cv2.COLOR_RGB2BGR)
     )
 
     if not success:
-        raise RuntimeError(
-            "Failed to encode Grad-CAM image"
-        )
+        raise RuntimeError("Failed to encode Grad-CAM image")
 
     return encoded.tobytes()
