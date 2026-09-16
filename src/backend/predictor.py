@@ -1,11 +1,82 @@
-import cv2
-import numpy as np
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import torch
-import torch.nn.functional as F
+torch.set_num_threads(1)
+
 from PIL import Image
 from torchvision import transforms
 
-cv2.setNumThreads(1)
+from src.training.model import create_model
+
+
+# ============================================================
+# DEVICE
+# ============================================================
+
+device = torch.device("cpu")
+
+
+# ============================================================
+# MODEL PATH
+# ============================================================
+
+BASE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "models",
+    "focal_best_model.pth"
+)
+
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+
+print("Loading DrishtiAI model...")
+print(f"Model path: {MODEL_PATH}")
+print(f"Device: {device}")
+
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(
+        f"Model file not found: {MODEL_PATH}"
+    )
+
+# IMPORTANT:
+# weights=None prevents downloading ResNet pretrained
+# ImageNet weights during deployment.
+model = create_model(
+    num_classes=5,
+    weights=None
+)
+
+checkpoint = torch.load(
+    MODEL_PATH,
+    map_location=device,
+    weights_only=False
+)
+
+# Support checkpoint containing model_state_dict
+if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+    state_dict = checkpoint["model_state_dict"]
+else:
+    state_dict = checkpoint
+
+model.load_state_dict(state_dict)
+
+model = model.to(device)
+model.eval()
+
+print("DrishtiAI model loaded successfully.")
+
+
+# ============================================================
+# IMAGE TRANSFORMATION
+# ============================================================
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -17,87 +88,55 @@ transform = transforms.Compose([
 ])
 
 
-def generate_gradcam(
-    image: Image.Image,
-    predicted_class: int,
-    model,
-    device
-):
-    """
-    Lightweight Grad-CAM using raw PyTorch forward/backward hooks.
-    No pytorch-grad-cam / matplotlib / ttach dependency needed.
-    """
+# ============================================================
+# DIABETIC RETINOPATHY LABELS
+# ============================================================
+
+GRADE_LABELS = {
+    0: "No Diabetic Retinopathy",
+    1: "Mild",
+    2: "Moderate",
+    3: "Severe",
+    4: "Proliferative"
+}
+
+
+# ============================================================
+# PREDICTION
+# ============================================================
+
+def predict_image(image: Image.Image):
 
     image = image.convert("RGB")
-    resized = image.resize((224, 224))
-    rgb_image = np.array(resized).astype(np.float32) / 255.0
 
-    input_tensor = transform(image).unsqueeze(0).to(device)
-    input_tensor.requires_grad_(True)
+    tensor = transform(image)
+    tensor = tensor.unsqueeze(0).to(device)  # type: ignore
 
-    activations = {}
-    gradients = {}
+    with torch.no_grad():
 
-    target_layer = model.layer4[-1]
+        outputs = model(tensor)
 
-    def forward_hook(module, inp, out):
-        activations["value"] = out
+        probabilities = torch.softmax(
+            outputs,
+            dim=1
+        )
 
-    def backward_hook(module, grad_in, grad_out):
-        gradients["value"] = grad_out[0]
+        confidence, prediction = torch.max(
+            probabilities,
+            dim=1
+        )
 
-    fh = target_layer.register_forward_hook(forward_hook)
-    bh = target_layer.register_full_backward_hook(backward_hook)
+    grade = int(prediction.item())
+    confidence_value = float(confidence.item())
 
-    try:
-        model.zero_grad(set_to_none=True)
-        output = model(input_tensor)
-        score = output[0, predicted_class]
-        score.backward()
-
-        acts = activations["value"].detach()[0]   # (C, H, W)
-        grads = gradients["value"].detach()[0]     # (C, H, W)
-
-        weights = grads.mean(dim=(1, 2))            # (C,)
-        cam = torch.zeros(acts.shape[1:], dtype=torch.float32)
-
-        for i, w in enumerate(weights):
-            cam += w * acts[i]
-
-        cam = F.relu(cam)
-        cam = cam / (cam.max() + 1e-8)
-        cam = cam.cpu().numpy()
-
-    finally:
-        fh.remove()
-        bh.remove()
-        model.zero_grad(set_to_none=True)
-
-    cam_resized = cv2.resize(cam, (224, 224))
-
-    heatmap = cv2.applyColorMap(
-        np.uint8(255 * cam_resized),
-        cv2.COLORMAP_JET
-    )
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-
-    overlay = (
-        0.5 * heatmap.astype(np.float32)
-        + 0.5 * (rgb_image * 255)
-    ).astype(np.uint8)
-
-    combined = np.hstack([
-        np.array(resized),
-        heatmap,
-        overlay
-    ])
-
-    success, encoded = cv2.imencode(
-        ".jpg",
-        cv2.cvtColor(combined, cv2.COLOR_RGB2BGR)
-    )
-
-    if not success:
-        raise RuntimeError("Failed to encode Grad-CAM image")
-
-    return encoded.tobytes()
+    return {
+        "grade": grade,
+        "severity": GRADE_LABELS.get(
+            grade,
+            "Unknown"
+        ),
+        "confidence": round(
+            confidence_value * 100,
+            2
+        )
+    }
