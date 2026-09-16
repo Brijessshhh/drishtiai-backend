@@ -1,10 +1,14 @@
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import torch
+torch.set_num_threads(1)
+
 from PIL import Image
 from torchvision import transforms
 
 from src.training.model import create_model
-
 
 
 # ============================================================
@@ -106,7 +110,7 @@ def predict_image(image: Image.Image):
     image = image.convert("RGB")
 
     tensor = transform(image)
-    tensor = tensor.unsqueeze(0).to(device)
+    tensor = tensor.unsqueeze(0).to(device)  # type: ignore
 
     with torch.no_grad():
 
