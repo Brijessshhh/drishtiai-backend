@@ -71,6 +71,12 @@ model.load_state_dict(state_dict)
 model = model.to(device)
 model.eval()
 
+# Freeze all parameter gradients — inference only, never need
+# weight gradients. Saves significant memory during Grad-CAM's
+# backward() pass (activation gradients still work fine).
+for p in model.parameters():
+    p.requires_grad_(False)
+
 print("DrishtiAI model loaded successfully.")
 
 
