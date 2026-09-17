@@ -1,5 +1,4 @@
-@"
-venv/
+﻿venv/
 __pycache__/
 *.pyc
 .next/
@@ -9,4 +8,7 @@ node_modules/
 *.db
 datasets/
 outputs/
-"@ | Set-Content .gitignore
+.vscode/
+models/
+*.pth
+*.conflict-backup

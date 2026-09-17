@@ -32,7 +32,7 @@ def generate_gradcam(
     resized = image.resize((224, 224))
     rgb_image = np.array(resized).astype(np.float32) / 255.0
 
-    input_tensor = transform(image).unsqueeze(0).to(device)
+    input_tensor = transform(image).unsqueeze(0).to(device) # type: ignore
     input_tensor.requires_grad_(True)
 
     activations = {}
