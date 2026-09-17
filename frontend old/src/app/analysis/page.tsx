@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { ChangeEvent, useState } from "react";
-
 const API_URL = "https://drishtiai-backend-mu35.onrender.com";
 
 

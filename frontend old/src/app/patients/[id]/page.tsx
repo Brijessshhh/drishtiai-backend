@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-
 const API_URL = "https://drishtiai-backend-mu35.onrender.com";
 
 type Assessment = {

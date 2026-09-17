@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-
 const API_URL = "https://drishtiai-backend-mu35.onrender.com";
 
 type Patient = {
